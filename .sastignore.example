@@ -1,0 +1,24 @@
+# Mini SAST Ignore File
+# Copy to .sastignore in your project root
+
+# Skip test directories
+**/test/**
+**/tests/**
+**/*Test.java
+**/*Spec.java
+
+# Skip generated code
+**/generated/**
+**/generated-sources/**
+
+# Skip build output
+target/
+build/
+dist/
+
+# Skip vendor/third-party
+vendor/
+third_party/
+
+# Skip specific files
+legacy-unsafe-code.java
