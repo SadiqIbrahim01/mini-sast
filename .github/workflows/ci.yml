@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  checks:   write        # needed for test reporter
+  pull-requests: write   # needed for PR comments
+
+jobs:
+  build-and-test:
+    name: Build & Test — Java ${{ matrix.java }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        java: [ 21 ]     # Matrix ready: add 22, 23 later without touching jobs
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+          cache: maven           # caches ~/.m2 between runs
+
+      - name: Build & run all tests
+        run: mvn --no-transfer-progress --batch-mode clean verify
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: always()             # run even if tests fail
+        with:
+          name: JUnit Results (Java ${{ matrix.java }})
+          path: '**/target/surefire-reports/*.xml'
+          reporter: java-junit
+          fail-on-error: false   # don't fail the reporter if no tests yet
+
+      - name: Upload CLI fat JAR
+        if: success() && matrix.java == 21
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-sast-cli-snapshot
+          path: cli/target/*-standalone.jar
+          retention-days: 14
