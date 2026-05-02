@@ -18,20 +18,21 @@ import java.util.Set;
  *
  * Attack scenario:
  *   Runtime.getRuntime().exec("ping " + userInput);
- *   → attacker passes: "; rm -rf /"
- *   → executed as: ping ; rm -rf /
+ *   -> attacker passes: "; rm -rf /"
+ *   -> executed as:     ping ; rm -rf /
  *
  * Detection strategy:
  *   Match MethodCallExpr where:
- *     1. Method is Runtime.exec() or ProcessBuilder constructor
+ *     1. Method is Runtime.exec()
  *     2. Argument contains dynamic string concatenation
+ *   Also matches new ProcessBuilder() with dynamic arguments.
  *
  * CWE-78: Improper Neutralization of Special Elements used in an OS Command
- * OWASP A03:2021 — Injection
+ * OWASP A03:2021 - Injection
  */
 public final class CommandInjectionRule extends JavaAstRule {
 
-    private static final Set<String> EXEC_METHODS = Set.of("exec");
+    private static final Set<String> EXEC_METHODS    = Set.of("exec");
     private static final Set<String> PROCESS_CLASSES = Set.of("ProcessBuilder", "Runtime");
 
     public CommandInjectionRule() {
@@ -43,7 +44,7 @@ public final class CommandInjectionRule extends JavaAstRule {
                 Severity.CRITICAL,
                 Confidence.HIGH,
                 "CWE-78",
-                "A03:2021 – Injection",
+                "A03:2021 - Injection",
                 "Never pass user-controlled input to exec(). If OS commands are required, " +
                         "use an allowlist of permitted commands, pass arguments as separate array " +
                         "elements (not a single concatenated string), and run in a sandboxed environment."
@@ -73,8 +74,6 @@ public final class CommandInjectionRule extends JavaAstRule {
 
             if (!EXEC_METHODS.contains(call.getNameAsString())) return;
 
-            // Check that the caller is Runtime (scope: Runtime.getRuntime().exec(...)
-            // or the scope resolves to a Runtime variable)
             boolean isRuntimeCall = call.getScope()
                     .map(scope -> scope.toString().contains("Runtime"))
                     .orElse(false);
@@ -98,7 +97,6 @@ public final class CommandInjectionRule extends JavaAstRule {
             }
         }
 
-        /** Also catches: new ProcessBuilder("cmd", userInput) */
         @Override
         public void visit(ObjectCreationExpr creation, Void arg) {
             super.visit(creation, arg);
@@ -115,7 +113,7 @@ public final class CommandInjectionRule extends JavaAstRule {
                                     truncate(creation.toString(), 120)),
                             "new ProcessBuilder() constructed with dynamic argument. " +
                                     "Verify no user-controlled data reaches this call.",
-                            Confidence.MEDIUM   // ProcessBuilder args may be safe — medium confidence
+                            Confidence.MEDIUM
                     ));
                     return;
                 }
@@ -143,7 +141,7 @@ public final class CommandInjectionRule extends JavaAstRule {
         }
 
         private String truncate(String s, int max) {
-            return s.length() <= max ? s : s.substring(0, max) + "…";
+            return s.length() <= max ? s : s.substring(0, max) + "...";
         }
     }
 }
