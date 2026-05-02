@@ -1,0 +1,137 @@
+package com.minisast.core.engine;
+
+import com.minisast.core.model.Severity;
+import com.minisast.core.model.ScanResult;
+import com.minisast.core.parser.JavaLanguageParser;
+import com.minisast.core.rules.RuleRegistry;
+import org.junit.jupiter.api.*;
+
+import java.io.IOException;
+import java.net.URISyntaxException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Integration tests — real parser, real rules, real fixture files.
+ *
+ * These tests validate end-to-end behaviour:
+ *   fixture file → ScanEngine → ScanResult with expected findings
+ *
+ * They are deliberately named *IntegrationTest so Surefire's default
+ * includes them. In Phase 6 we can split unit/integration with Maven profiles.
+ */
+@DisplayName("ScanEngine Integration")
+class ScanEngineIntegrationTest {
+
+    private ScanEngine engine;
+
+    @BeforeEach
+    void setUp() {
+        engine = new ScanEngine(
+                java.util.List.of(new JavaLanguageParser()),
+                new RuleRegistry().enabled(),
+                ScanConfiguration.defaults()
+        );
+    }
+
+    // ── SQL Injection ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("Detects SQL injection in SqlInjectionSamples fixture")
+    void detectsSqlInjection() throws IOException, URISyntaxException {
+        ScanResult result = scanFixture("fixtures/vulnerable/SqlInjectionSamples.java");
+
+        // 3 vulnerable methods, 2 safe ones
+        assertThat(result.findings())
+                .filteredOn(f -> f.ruleId().equals("JAVA-SQL-001"))
+                .as("Should detect 3 SQL injection findings")
+                .hasSize(3);
+    }
+
+    @Test
+    @DisplayName("SQL injection findings are CRITICAL severity")
+    void sqlInjectionIsCritical() throws IOException, URISyntaxException {
+        ScanResult result = scanFixture("fixtures/vulnerable/SqlInjectionSamples.java");
+
+        assertThat(result.findings())
+                .filteredOn(f -> f.ruleId().equals("JAVA-SQL-001"))
+                .extracting(f -> f.severity())
+                .containsOnly(Severity.CRITICAL);
+    }
+
+    // ── Hardcoded Secrets ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("Detects hardcoded secrets in HardcodedSecretSamples fixture")
+    void detectsHardcodedSecrets() throws IOException, URISyntaxException {
+        ScanResult result = scanFixture("fixtures/vulnerable/HardcodedSecretSamples.java");
+
+        assertThat(result.findings())
+                .filteredOn(f -> f.ruleId().equals("JAVA-SEC-001"))
+                .as("Should detect 5 hardcoded secret findings")
+                .hasSize(5);
+    }
+
+    @Test
+    @DisplayName("Does not flag environment variable reads as hardcoded secrets")
+    void doesNotFlagEnvVarReads() throws IOException, URISyntaxException {
+        ScanResult result = scanFixture("fixtures/vulnerable/HardcodedSecretSamples.java");
+
+        // Ensure no finding location points to the System.getenv line (line 18)
+        assertThat(result.findings())
+                .filteredOn(f -> f.ruleId().equals("JAVA-SEC-001"))
+                .noneMatch(f -> f.location().startLine() == 18);
+    }
+
+    // ── Command Injection ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("Detects command injection in CommandInjectionSamples fixture")
+    void detectsCommandInjection() throws IOException, URISyntaxException {
+        ScanResult result = scanFixture("fixtures/vulnerable/CommandInjectionSamples.java");
+
+        assertThat(result.findings())
+                .filteredOn(f -> f.ruleId().equals("JAVA-CMD-001"))
+                .as("Should detect 2 command injection findings")
+                .hasSize(2);
+    }
+
+    @Test
+    @DisplayName("Does not flag literal-only Runtime.exec calls")
+    void doesNotFlagLiteralExec() throws IOException, URISyntaxException {
+        ScanResult result = scanFixture("fixtures/vulnerable/CommandInjectionSamples.java");
+
+        // literal exec is on line 18 — must not appear in findings
+        assertThat(result.findings())
+                .filteredOn(f -> f.ruleId().equals("JAVA-CMD-001"))
+                .noneMatch(f -> f.location().startLine() == 18);
+    }
+
+    // ── Stats ──────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("ScanResult stats reflect actual finding counts")
+    void statsAreAccurate() throws IOException, URISyntaxException {
+        ScanResult result = scanFixture("fixtures/vulnerable/SqlInjectionSamples.java");
+
+        assertThat(result.stats().filesScanned()).isEqualTo(1);
+        assertThat(result.stats().totalFindings()).isEqualTo(result.findings().size());
+        assertThat(result.stats().countBySeverity(Severity.CRITICAL))
+                .isEqualTo(result.findings().stream()
+                        .filter(f -> f.severity() == Severity.CRITICAL).count());
+    }
+
+    // ── Helper ────────────────────────────────────────────────────────────────
+
+    private ScanResult scanFixture(String resourcePath) throws IOException, URISyntaxException {
+        var url = getClass().getClassLoader().getResource(resourcePath);
+        assertThat(url)
+                .as("Fixture not found on classpath: %s", resourcePath)
+                .isNotNull();
+
+        Path fixturePath = Paths.get(url.toURI());
+        return engine.scan(fixturePath);
+    }
+}
