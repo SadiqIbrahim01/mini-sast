@@ -3,8 +3,10 @@ package com.minisast.cli;
 import com.minisast.core.engine.ScanConfiguration;
 import com.minisast.core.engine.ScanEngine;
 import com.minisast.core.model.*;
+import com.minisast.core.parser.JavaLanguageParser;
 import com.minisast.core.parser.LanguageParser;
 import com.minisast.core.rules.Rule;
+import com.minisast.core.rules.RuleRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine.*;
@@ -94,10 +96,9 @@ public class ScanCommand implements Callable<Integer> {
     public Integer call() {
         printBanner();
 
-        // Phase 2 will inject real parsers and rules via a PluginLoader.
-        // For now: empty lists validate the engine skeleton compiles and runs.
-        List<LanguageParser> parsers = List.of();
-        List<Rule>           rules   = List.of();
+        // Real parsers and rules — Phase 2
+        List<LanguageParser> parsers = List.of(new JavaLanguageParser());
+        List<Rule>           rules   = new RuleRegistry().enabled();
 
         ScanConfiguration config = ScanConfiguration.builder()
                 .minimumSeverity(minimumSeverity)
