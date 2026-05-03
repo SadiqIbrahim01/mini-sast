@@ -98,18 +98,15 @@ public class ScanCommand implements Callable<Integer> {
         printBanner();
 
         // Real parsers and rules — Phase 2
-        List<LanguageParser> parsers = List.of(
-                new JavaLanguageParser(),
-                new ConfigFileParser()
-        );
-        List<Rule>           rules   = new RuleRegistry().enabled();
-
         ScanConfiguration config = ScanConfiguration.builder()
                 .minimumSeverity(minimumSeverity)
                 .build();
 
-        ScanEngine engine = new ScanEngine(parsers, rules, config);
-
+        ScanEngine engine = new ScanEngine(
+                ScanEngine.defaultParsers(),
+                new RuleRegistry().enabled(),
+                config
+        );
         try {
             ScanResult result = engine.scan(target);
             renderResult(result);

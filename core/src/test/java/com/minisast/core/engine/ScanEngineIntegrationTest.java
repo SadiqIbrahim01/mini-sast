@@ -2,6 +2,7 @@ package com.minisast.core.engine;
 
 import com.minisast.core.model.Severity;
 import com.minisast.core.model.ScanResult;
+import com.minisast.core.parser.ConfigFileParser;
 import com.minisast.core.parser.JavaLanguageParser;
 import com.minisast.core.rules.RuleRegistry;
 import org.junit.jupiter.api.*;
@@ -30,11 +31,7 @@ class ScanEngineIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        engine = new ScanEngine(
-                java.util.List.of(new JavaLanguageParser()),
-                new RuleRegistry().enabled(),
-                ScanConfiguration.defaults()
-        );
+        engine = ScanEngine.createDefault();
     }
 
     // ── SQL Injection ─────────────────────────────────────────────────────────

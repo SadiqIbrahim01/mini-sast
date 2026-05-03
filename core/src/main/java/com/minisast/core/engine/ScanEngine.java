@@ -2,8 +2,11 @@ package com.minisast.core.engine;
 
 import com.minisast.core.exception.ParseException;
 import com.minisast.core.model.*;
+import com.minisast.core.parser.ConfigFileParser;
+import com.minisast.core.parser.JavaLanguageParser;
 import com.minisast.core.parser.LanguageParser;
 import com.minisast.core.rules.Rule;
+import com.minisast.core.rules.RuleRegistry;
 import com.minisast.core.rules.RuleMatch;
 import com.minisast.core.walker.FileWalker;
 import com.minisast.core.walker.IgnorePatterns;
@@ -24,7 +27,7 @@ import java.util.Optional;
  *   1. Walk the file tree (via FileWalker)
  *   2. Dispatch each file to the correct LanguageParser
  *   3. Run applicable rules per file
- *   4. Convert RuleMatches → Findings
+ *   4. Convert RuleMatches -> Findings
  *   5. Return a complete, immutable ScanResult
  *
  * This class is intentionally free of Spring, CLI, or API concerns.
@@ -32,6 +35,10 @@ import java.util.Optional;
  *
  * Thread safety: ScanEngine is stateless after construction.
  * The same instance can run concurrent scans safely (Phase 6).
+ *
+ * Use createDefault() or defaultParsers() as the single source of truth
+ * for parser registration. Never construct parser lists manually in
+ * consumers — that causes environment drift between production and tests.
  */
 public final class ScanEngine {
 
@@ -51,6 +58,39 @@ public final class ScanEngine {
         this.rules   = List.copyOf(rules);
         this.config  = config;
     }
+
+    // ── Factory methods ───────────────────────────────────────────────────────
+
+    /**
+     * Returns the canonical list of all built-in language parsers.
+     *
+     * This is the single source of truth for parser registration.
+     * Adding a new parser here automatically affects CLI, API, and tests.
+     * Never construct this list manually in consumers.
+     */
+    public static List<LanguageParser> defaultParsers() {
+        return List.of(
+                new JavaLanguageParser(),
+                new ConfigFileParser()
+        );
+    }
+
+    /**
+     * Creates a fully configured engine with default parsers, all enabled
+     * rules, and default scan configuration.
+     *
+     * Use in integration tests and anywhere a standard scan is needed
+     * without custom configuration overrides.
+     */
+    public static ScanEngine createDefault() {
+        return new ScanEngine(
+                defaultParsers(),
+                new RuleRegistry().enabled(),
+                ScanConfiguration.defaults()
+        );
+    }
+
+    // ── Core scan ─────────────────────────────────────────────────────────────
 
     /**
      * Execute a scan against a file or directory.
@@ -74,9 +114,9 @@ public final class ScanEngine {
         List<Path> files  = walker.walk(target);
 
         // Analyse each file
-        List<Finding> findings = new ArrayList<>();
-        int  filesScanned = 0;
-        long totalLines   = 0L;
+        List<Finding> findings    = new ArrayList<>();
+        int           filesScanned = 0;
+        long          totalLines   = 0L;
 
         for (Path file : files) {
             Optional<LanguageParser> parser = findParser(file);
@@ -95,14 +135,17 @@ public final class ScanEngine {
             try {
                 List<RuleMatch> matches = parser.get().analyze(file, applicable);
                 matches.stream()
-                        .filter(m -> ruleFor(m.ruleId()).map(r -> r.getSeverity().isAtLeast(config.minimumSeverity())).orElse(false))
+                        .filter(m -> ruleFor(m.ruleId())
+                                .map(r -> r.getSeverity().isAtLeast(config.minimumSeverity()))
+                                .orElse(false))
                         .map(m -> toFinding(m, ruleFor(m.ruleId()).orElseThrow()))
                         .forEach(findings::add);
 
             } catch (ParseException e) {
                 log.warn("Parse error in {} — {}", file, e.getMessage());
                 if (config.failOnParseError()) {
-                    throw new IOException("Scan aborted due to parse error: " + e.getMessage(), e);
+                    throw new IOException(
+                            "Scan aborted due to parse error: " + e.getMessage(), e);
                 }
             }
         }
@@ -124,7 +167,7 @@ public final class ScanEngine {
         return result;
     }
 
-    // ── Private helpers ────────────────────────────────────────────────────────
+    // ── Private helpers ───────────────────────────────────────────────────────
 
     private Optional<LanguageParser> findParser(Path file) {
         return parsers.stream().filter(p -> p.supports(file)).findFirst();
@@ -134,7 +177,8 @@ public final class ScanEngine {
         String lang = language.name().toLowerCase();
         return rules.stream()
                 .filter(Rule::isEnabled)
-                .filter(r -> r.getLanguage().equals("*") || r.getLanguage().equalsIgnoreCase(lang))
+                .filter(r -> r.getLanguage().equals("*")
+                        || r.getLanguage().equalsIgnoreCase(lang))
                 .toList();
     }
 
