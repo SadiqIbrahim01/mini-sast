@@ -3,6 +3,7 @@ package com.minisast.cli;
 import com.minisast.core.engine.ScanConfiguration;
 import com.minisast.core.engine.ScanEngine;
 import com.minisast.core.model.*;
+import com.minisast.core.parser.ConfigFileParser;
 import com.minisast.core.parser.JavaLanguageParser;
 import com.minisast.core.parser.LanguageParser;
 import com.minisast.core.rules.Rule;
@@ -97,7 +98,10 @@ public class ScanCommand implements Callable<Integer> {
         printBanner();
 
         // Real parsers and rules — Phase 2
-        List<LanguageParser> parsers = List.of(new JavaLanguageParser());
+        List<LanguageParser> parsers = List.of(
+                new JavaLanguageParser(),
+                new ConfigFileParser()
+        );
         List<Rule>           rules   = new RuleRegistry().enabled();
 
         ScanConfiguration config = ScanConfiguration.builder()

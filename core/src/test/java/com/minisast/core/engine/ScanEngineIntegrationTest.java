@@ -147,6 +147,54 @@ class ScanEngineIntegrationTest {
                         .filter(f -> f.severity() == Severity.CRITICAL).count());
     }
 
+    // ── Config file scanning ──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("Detects secrets in .env file with real values")
+    void detectsSecretsInEnvFile() throws IOException, URISyntaxException {
+        ScanResult result = scanFixture("fixtures/vulnerable/secrets.env");
+
+        assertThat(result.findings())
+                .filteredOn(f -> f.ruleId().equals("CONFIG-SEC-001"))
+                .as("Should detect all 5 hardcoded secrets in .env file")
+                .hasSize(5);
+    }
+
+    @Test
+    @DisplayName("Detects secrets in application.properties with real values")
+    void detectsSecretsInPropertiesFile() throws IOException, URISyntaxException {
+        ScanResult result = scanFixture(
+                "fixtures/vulnerable/application-vulnerable.properties"
+        );
+
+        assertThat(result.findings())
+                .filteredOn(f -> f.ruleId().equals("CONFIG-SEC-001"))
+                .as("Should detect hardcoded secrets in properties file")
+                .hasSizeGreaterThanOrEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("Does not flag safe application.properties using env var references")
+    void doesNotFlagSafePropertiesFile() throws IOException, URISyntaxException {
+        ScanResult result = scanFixture("fixtures/safe/application-safe.properties");
+
+        assertThat(result.findings())
+                .filteredOn(f -> f.ruleId().equals("CONFIG-SEC-001"))
+                .as("Should produce zero findings for env-var-reference properties")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("Does not flag .env.example documentation file")
+    void doesNotFlagEnvExampleFile() throws IOException, URISyntaxException {
+        ScanResult result = scanFixture("fixtures/safe/example.env");
+
+        assertThat(result.findings())
+                .filteredOn(f -> f.ruleId().equals("CONFIG-SEC-001"))
+                .as("Should produce zero findings for .env.example file")
+                .isEmpty();
+    }
+
     // ── Helper ────────────────────────────────────────────────────────────────
 
     private ScanResult scanFixture(String resourcePath) throws IOException, URISyntaxException {
