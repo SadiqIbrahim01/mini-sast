@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -75,14 +76,37 @@ class ScanEngineIntegrationTest {
     }
 
     @Test
+    @DisplayName("Does not flag placeholder templates as hardcoded secrets")
+    void doesNotFlagPlaceholders() throws IOException, URISyntaxException {
+        ScanResult result = scanFixture("fixtures/vulnerable/HardcodedSecretSamples.java");
+
+        // None of the placeholder lines (28, 31, 34, 37, 40, 43, 46) should appear
+        Set<Integer> placeholderLines = Set.of(28, 31, 34, 37, 40, 43, 46, 49, 52);
+
+        assertThat(result.findings())
+                .filteredOn(f -> f.ruleId().equals("JAVA-SEC-001"))
+                .noneMatch(f -> placeholderLines.contains(f.location().startLine()));
+    }
+
+    @Test
     @DisplayName("Does not flag environment variable reads as hardcoded secrets")
     void doesNotFlagEnvVarReads() throws IOException, URISyntaxException {
         ScanResult result = scanFixture("fixtures/vulnerable/HardcodedSecretSamples.java");
 
-        // Ensure no finding location points to the System.getenv line (line 18)
         assertThat(result.findings())
                 .filteredOn(f -> f.ruleId().equals("JAVA-SEC-001"))
-                .noneMatch(f -> f.location().startLine() == 18);
+                .noneMatch(f -> f.location().startLine() == 19);
+    }
+
+    @Test
+    @DisplayName("Does not flag low-entropy sensitive names (test code pattern)")
+    void doesNotFlagLowEntropyTestCode() throws IOException, URISyntaxException {
+        ScanResult result = scanFixture("fixtures/vulnerable/HardcodedSecretSamples.java");
+
+        // "mypassword" — sensitive name but low entropy, line 62
+        assertThat(result.findings())
+                .filteredOn(f -> f.ruleId().equals("JAVA-SEC-001"))
+                .noneMatch(f -> f.location().startLine() == 62);
     }
 
     // ── Command Injection ─────────────────────────────────────────────────────
