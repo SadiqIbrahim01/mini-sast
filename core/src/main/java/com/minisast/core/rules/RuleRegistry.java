@@ -4,6 +4,7 @@ import com.minisast.core.rules.config.ConfigSecretRule;
 import com.minisast.core.rules.java.CommandInjectionRule;
 import com.minisast.core.rules.java.HardcodedSecretRule;
 import com.minisast.core.rules.java.SqlInjectionRule;
+import com.minisast.core.rules.java.SqlInjectionTaintRule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,6 +21,7 @@ public final class RuleRegistry {
                 new SqlInjectionRule(),
                 new HardcodedSecretRule(),
                 new CommandInjectionRule(),
+                new SqlInjectionTaintRule(),
                 new ConfigSecretRule()      // ← added
         );
         log.info("Rule registry initialized with {} rules", rules.size());
