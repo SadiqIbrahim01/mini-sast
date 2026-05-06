@@ -2,34 +2,21 @@ package com.minisast.cli;
 
 import com.minisast.core.engine.ScanConfiguration;
 import com.minisast.core.engine.ScanEngine;
-import com.minisast.core.model.*;
-import com.minisast.core.parser.ConfigFileParser;
-import com.minisast.core.parser.JavaLanguageParser;
-import com.minisast.core.parser.LanguageParser;
-import com.minisast.core.rules.Rule;
+import com.minisast.core.model.ScanResult;
+import com.minisast.core.model.Severity;
+import com.minisast.core.report.Reporter;
+import com.minisast.core.report.ReporterFactory;
 import com.minisast.core.rules.RuleRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine.*;
 
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.concurrent.Callable;
 
-/**
- * The 'scan' subcommand.
- *
- * Usage:
- *   minisast scan ./src
- *   minisast scan ./src --severity HIGH --fail-on-findings
- *   minisast scan ./src --output json --output-file report.json
- *
- * Exit codes (important for CI integration):
- *   0 — success, no findings at threshold
- *   1 — findings found (when --fail-on-findings is set)
- *   2 — scan error (target not found, IO error, etc.)
- */
 @Command(
         name        = "scan",
         description = "Scan a file or directory for security vulnerabilities",
@@ -39,13 +26,8 @@ public class ScanCommand implements Callable<Integer> {
 
     private static final Logger log = LoggerFactory.getLogger(ScanCommand.class);
 
-    // ANSI escape codes — stored as constants, never inline
-    private static final String RESET  = "\u001B[0m";
-    private static final String BOLD   = "\u001B[1m";
-    private static final String CYAN   = "\u001B[36m";
-    private static final String GREEN  = "\u001B[32m";
-    private static final String RED    = "\u001B[31m";
-    private static final String YELLOW = "\u001B[33m";
+    private static final String CYAN  = "\u001B[36m";
+    private static final String RESET = "\u001B[0m";
 
     @Parameters(
             index       = "0",
@@ -55,21 +37,21 @@ public class ScanCommand implements Callable<Integer> {
 
     @Option(
             names       = {"-s", "--severity"},
-            description = "Minimum severity to report: ${COMPLETION-CANDIDATES} (default: LOW)",
+            description = "Minimum severity to report: CRITICAL, HIGH, MEDIUM, LOW, INFO (default: LOW)",
             defaultValue = "LOW"
     )
     private Severity minimumSeverity;
 
     @Option(
             names       = {"-o", "--output"},
-            description = "Output format: cli, json (default: cli)",
+            description = "Output format: " + "cli, json, html (default: cli)",
             defaultValue = "cli"
     )
     private String outputFormat;
 
     @Option(
             names       = {"-f", "--output-file"},
-            description = "Write output to this file (default: stdout)"
+            description = "Write report to this file (default: stdout)"
     )
     private Path outputFile;
 
@@ -97,7 +79,6 @@ public class ScanCommand implements Callable<Integer> {
     public Integer call() {
         printBanner();
 
-        // Real parsers and rules — Phase 2
         ScanConfiguration config = ScanConfiguration.builder()
                 .minimumSeverity(minimumSeverity)
                 .build();
@@ -107,95 +88,38 @@ public class ScanCommand implements Callable<Integer> {
                 new RuleRegistry().enabled(),
                 config
         );
+
         try {
             ScanResult result = engine.scan(target);
-            renderResult(result);
+            writeReport(result);
             return exitCode(result);
 
         } catch (IOException e) {
-            System.err.printf("%s✗ Scan failed: %s%s%n", RED, e.getMessage(), RESET);
+            System.err.printf("%s✗ Scan failed: %s%s%n",
+                    noColor ? "" : "\u001B[31m", e.getMessage(),
+                    noColor ? "" : RESET);
             log.error("Scan failed for target: {}", target, e);
             return 2;
         }
     }
 
-    // ── Rendering ─────────────────────────────────────────────────────────────
+    // ── Report output ─────────────────────────────────────────────────────────
 
-    private void renderResult(ScanResult result) {
-        ScanStats stats = result.stats();
+    private void writeReport(ScanResult result) throws IOException {
+        // Disable color when writing to a file — ANSI codes are noise in saved files
+        boolean colorize = !noColor && outputFile == null;
+        Reporter reporter = ReporterFactory.forFormat(outputFormat, colorize);
 
-        System.out.println();
-        System.out.printf("%s%s── Scan Results%s%n", BOLD, CYAN, RESET);
-        System.out.printf("   %-10s %s%n", "Target:",   result.targetPath());
-        System.out.printf("   %-10s %d files%n", "Scanned:", stats.filesScanned());
-        System.out.printf("   %-10s %,d lines%n", "Lines:",   stats.linesScanned());
-        System.out.printf("   %-10s %d ms%n", "Duration:", result.durationMs());
-        System.out.printf("   %-10s %s%d%s%n%n",
-                "Findings:",
-                stats.totalFindings() > 0 ? RED : GREEN,
-                stats.totalFindings(),
-                RESET);
-
-        if (!result.hasFindings()) {
-            System.out.printf("%s✓ No findings detected.%s%n", GREEN, RESET);
-            return;
+        if (outputFile != null) {
+            try (OutputStream out = new FileOutputStream(outputFile.toFile())) {
+                reporter.report(result, out);
+            }
+            System.out.printf("Report written to: %s%n",
+                    outputFile.toAbsolutePath());
+        } else {
+            reporter.report(result, System.out);
+            System.out.flush();
         }
-
-        result.findings().forEach(this::printFinding);
-        printSummaryTable(result);
-    }
-
-    private void printFinding(Finding f) {
-        String color = noColor ? "" : f.severity().getAnsiColor();
-        String reset = noColor ? "" : RESET;
-
-        System.out.printf("%s[%s]%s %s%s%s%n",
-                color, f.severity().getLabel(), reset,
-                BOLD, f.ruleName(), RESET);
-        System.out.printf("   %-12s %s%n", "Location:",    f.location());
-        System.out.printf("   %-12s %s%n", "Message:",     f.message());
-        System.out.printf("   %-12s %s%n", "Confidence:",  f.confidence().getLabel());
-
-        if (!f.cwe().isEmpty()) {
-            System.out.printf("   %-12s %s%n", "CWE:",     f.cwe());
-        }
-        if (!f.owasp().isEmpty()) {
-            System.out.printf("   %-12s %s%n", "OWASP:",   f.owasp());
-        }
-        if (!f.remediation().isEmpty()) {
-            System.out.printf("   %-12s %s%n", "Fix:",     f.remediation());
-        }
-
-        System.out.println();
-    }
-
-    private void printSummaryTable(ScanResult result) {
-        System.out.printf("%s%s── Finding Summary%s%n", BOLD, YELLOW, RESET);
-        result.stats().findingsBySeverity()
-                .entrySet()
-                .stream()
-                .sorted((a, b) -> Integer.compare(b.getKey().getLevel(), a.getKey().getLevel()))
-                .forEach(e -> {
-                    String color = noColor ? "" : e.getKey().getAnsiColor();
-                    System.out.printf("   %s%-10s%s %d%n",
-                            color, e.getKey().getLabel(), RESET, e.getValue());
-                });
-        System.out.println();
-    }
-
-    private void printBanner() {
-        if (noColor) {
-            System.out.println("=== Mini SAST v0.1.0 ===");
-            return;
-        }
-        System.out.printf("""
-                %s
-                ╔══════════════════════════════════╗
-                ║  🔐 Mini SAST  v0.1.0            ║
-                ║     Static Security Analysis     ║
-                ╚══════════════════════════════════╝
-                %s
-                """, CYAN, RESET);
     }
 
     private int exitCode(ScanResult result) {
@@ -206,5 +130,20 @@ public class ScanCommand implements Callable<Integer> {
         }
         if (failOnFindings && result.hasFindings()) return 1;
         return 0;
+    }
+
+    private void printBanner() {
+        if (noColor) {
+            System.out.println("=== Mini SAST v0.1.0 ===\n");
+            return;
+        }
+        System.out.printf("""
+                %s
+                ╔══════════════════════════════════╗
+                ║  🔐 Mini SAST  v0.1.0            ║
+                ║     Static Security Analysis     ║
+                ╚══════════════════════════════════╝
+                %s
+                """, CYAN, RESET);
     }
 }
