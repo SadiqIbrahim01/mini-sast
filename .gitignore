@@ -39,3 +39,7 @@ dist/
 
 # ── Coverage ───────────────────────────────────
 jacoco.exec
+
+# Allow test fixture env files
+!src/test/resources/fixtures/vulnerable/secrets.env
+!src/test/resources/fixtures/safe/example.env
