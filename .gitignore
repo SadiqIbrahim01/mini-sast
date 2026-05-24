@@ -40,6 +40,7 @@ dist/
 # ── Coverage ───────────────────────────────────
 jacoco.exec
 
-# Allow test fixture env files
-!src/test/resources/fixtures/vulnerable/secrets.env
-!src/test/resources/fixtures/safe/example.env
+
+
+# Exception: test fixture files are safe to commit (no real credentials)
+!core/src/test/resources/fixtures/**/*.env
