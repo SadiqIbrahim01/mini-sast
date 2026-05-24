@@ -1,0 +1,33 @@
+# Mini SAST Project Configuration
+# ─────────────────────────────────────────────────────────────────
+# Copy this file to .minisast.yml in your project root.
+# All sections are optional. CLI flags override config file values.
+
+version: "1.0"
+
+# ── Scan behaviour ────────────────────────────────────────────────
+scan:
+  minimumSeverity: LOW       # Report findings at this severity and above
+                             # Values: CRITICAL, HIGH, MEDIUM, LOW, INFO
+  failOnFindings: false      # Exit code 1 if any findings reported
+  failOnSeverity: null       # Exit code 1 if findings >= this severity
+  maxFileSizeMb: 10          # Skip files larger than this
+
+# ── Rule configuration ────────────────────────────────────────────
+rules:
+  disable: []                # Disable specific rules by ID
+    # - JAVA-SQL-002         # Example: disable taint rule (too many FPs)
+    # - JAVA-CMD-001         # Example: disable command injection
+
+# ── Output ───────────────────────────────────────────────────────
+output:
+  format: cli                # cli, json, html
+  file: null                 # Write to file instead of stdout
+
+# ── Additional exclude patterns ───────────────────────────────────
+# These combine with .sastignore patterns
+exclude: []
+  # - "**/test/**"
+  # - "**/generated/**"
+  # - "**/*Test.java"
+  # - "**/vendor/**"

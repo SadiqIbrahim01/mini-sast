@@ -48,6 +48,7 @@ public final class ScanEngine {
     private final List<LanguageParser> parsers;
     private final List<Rule>           rules;
     private final ScanConfiguration    config;
+    private final SuppressionFilter suppressionFilter = new SuppressionFilter();
 
     public ScanEngine(
             List<LanguageParser> parsers,
@@ -133,7 +134,11 @@ public final class ScanEngine {
             log.debug("Analysing {} with {} rules", file.getFileName(), applicable.size());
 
             try {
-                List<RuleMatch> matches = parser.get().analyze(file, applicable);
+                List<RuleMatch> rawMatches = parser.get().analyze(file, applicable);
+
+                // Apply inline suppression comments before converting to findings
+                List<RuleMatch> matches = suppressionFilter.filter(file, rawMatches);
+
                 matches.stream()
                         .filter(m -> ruleFor(m.ruleId())
                                 .map(r -> r.getSeverity().isAtLeast(config.minimumSeverity()))
@@ -177,6 +182,7 @@ public final class ScanEngine {
         String lang = language.name().toLowerCase();
         return rules.stream()
                 .filter(Rule::isEnabled)
+                .filter(r -> !config.isRuleDisabled(r.getId())) // ← honour disabled rules
                 .filter(r -> r.getLanguage().equals("*")
                         || r.getLanguage().equalsIgnoreCase(lang))
                 .toList();
