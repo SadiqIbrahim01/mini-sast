@@ -1,0 +1,83 @@
+# ============================================================
+# Stage 1: BUILD
+# Uses full JDK + Maven to compile and package
+# ============================================================
+FROM maven:3.9-eclipse-temurin-21-alpine AS builder
+
+LABEL stage=builder
+
+WORKDIR /build
+
+# ── Dependency caching ──────────────────────────────────────
+# Copy POM files before source code.
+# If only source changes (not deps), Docker reuses the cached
+# dependency layer — dramatically faster incremental builds.
+COPY pom.xml                    ./pom.xml
+COPY core/pom.xml               ./core/pom.xml
+COPY cli/pom.xml                ./cli/pom.xml
+COPY api/pom.xml                ./api/pom.xml
+
+RUN mvn --no-transfer-progress --batch-mode \
+        dependency:go-offline \
+        -pl cli -am \
+    || true
+# '|| true' prevents failure if some optional dependencies
+# are unavailable offline — build itself will catch real errors
+
+# ── Source code ─────────────────────────────────────────────
+COPY core/src ./core/src
+COPY cli/src  ./cli/src
+
+# ── Build fat JAR ───────────────────────────────────────────
+RUN mvn --no-transfer-progress --batch-mode \
+        clean package \
+        -pl cli -am \
+        -DskipTests
+
+# ============================================================
+# Stage 2: RUNTIME
+# Minimal JRE only — no compiler, no Maven, no source code
+# eclipse-temurin:21-jre-alpine ≈ 80MB vs JDK ≈ 400MB
+# ============================================================
+FROM eclipse-temurin:21-jre-alpine AS runtime
+
+# ── Non-root user (security hardening) ──────────────────────
+# Running as root inside a container grants root on the host
+# if there is a container escape vulnerability.
+RUN addgroup -S minisast \
+ && adduser  -S minisast -G minisast
+
+WORKDIR /app
+
+# ── Copy only the fat JAR from builder ──────────────────────
+COPY --from=builder \
+     /build/cli/target/mini-sast-cli-*-standalone.jar \
+     mini-sast.jar
+
+RUN chown -R minisast:minisast /app
+
+# ── Permissions ─────────────────────────────────────────────
+USER minisast
+
+# /scan is where users mount their source code
+VOLUME ["/scan"]
+
+# ── Metadata ─────────────────────────────────────────────────
+LABEL org.opencontainers.image.title="Mini SAST"
+LABEL org.opencontainers.image.description="Static Application Security Testing Tool"
+LABEL org.opencontainers.image.source="https://github.com/SadiqIbrahim01/mini-sast"
+LABEL org.opencontainers.image.licenses="MIT"
+
+# ── Entry point ──────────────────────────────────────────────
+# ENTRYPOINT + CMD pattern:
+#   ENTRYPOINT = always runs (the binary)
+#   CMD        = default arguments (overridable)
+#
+# docker run ghcr.io/.../mini-sast scan /scan    → works
+# docker run ghcr.io/.../mini-sast --help        → works
+# docker run ghcr.io/.../mini-sast --version     → works
+ENTRYPOINT ["java", \
+            "-XX:+UseContainerSupport", \
+            "-XX:MaxRAMPercentage=75.0", \
+            "-jar", "/app/mini-sast.jar"]
+CMD ["--help"]

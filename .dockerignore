@@ -1,0 +1,33 @@
+# Build outputs — we rebuild inside Docker
+target/
+*/target/
+**/*.class
+
+# IDE and OS files
+.idea/
+.vscode/
+*.iml
+*.iws
+.DS_Store
+Thumbs.db
+
+# Git history — not needed in image
+.git/
+.gitignore
+
+# Local environment files — never in images
+.env
+.env.local
+
+# Node (Phase 7 web module)
+web/node_modules/
+web/dist/
+
+# Logs
+*.log
+logs/
+
+# Documentation and examples
+docs/
+*.md
+!README.md

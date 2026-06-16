@@ -1,0 +1,83 @@
+# ============================================================
+# Stage 1: BUILD
+# ============================================================
+FROM maven:3.9-eclipse-temurin-21-alpine AS builder
+
+WORKDIR /build
+
+COPY pom.xml            ./pom.xml
+COPY core/pom.xml       ./core/pom.xml
+COPY cli/pom.xml        ./cli/pom.xml
+COPY api/pom.xml        ./api/pom.xml
+
+RUN mvn --no-transfer-progress --batch-mode \
+        dependency:go-offline \
+        -pl api -am \
+    || true
+
+COPY core/src ./core/src
+COPY api/src  ./api/src
+
+RUN mvn --no-transfer-progress --batch-mode \
+        clean package \
+        -pl api -am \
+        -DskipTests
+
+# ============================================================
+# Stage 2: LAYER EXTRACTION
+# Spring Boot 3 supports jarmode=layertools which splits the
+# JAR into layers ordered by how frequently they change:
+#   dependencies       (changes rarely   — cached longest)
+#   spring-boot-loader (changes rarely)
+#   snapshot-deps      (changes sometimes)
+#   application        (changes every build — cached shortest)
+#
+# Each layer becomes a separate Docker layer. On most builds
+# only the application layer is re-transferred.
+# ============================================================
+FROM eclipse-temurin:21-jre-alpine AS layers
+
+WORKDIR /application
+COPY --from=builder /build/api/target/mini-sast-api-*.jar app.jar
+
+RUN java -Djarmode=layertools -jar app.jar extract
+
+# ============================================================
+# Stage 3: RUNTIME
+# ============================================================
+FROM eclipse-temurin:21-jre-alpine AS runtime
+
+RUN addgroup -S minisast \
+ && adduser  -S minisast -G minisast
+
+WORKDIR /application
+
+# Copy each layer separately — Docker caches them independently
+COPY --from=layers /application/dependencies/          ./
+COPY --from=layers /application/spring-boot-loader/    ./
+COPY --from=layers /application/snapshot-dependencies/ ./
+COPY --from=layers /application/application/           ./
+
+RUN chown -R minisast:minisast /application
+
+USER minisast
+
+EXPOSE 8080
+
+# Health check — Docker marks container unhealthy if this fails
+# Gives Spring Boot 40s to start before checking begins
+HEALTHCHECK --interval=30s \
+            --timeout=10s  \
+            --start-period=40s \
+            --retries=3 \
+    CMD wget -q --spider http://localhost:8080/actuator/health \
+        || exit 1
+
+LABEL org.opencontainers.image.title="Mini SAST API"
+LABEL org.opencontainers.image.source="https://github.com/SadiqIbrahim01/mini-sast"
+
+# Spring Boot 3 launcher class (changed from Boot 2)
+ENTRYPOINT ["java", \
+            "-XX:+UseContainerSupport", \
+            "-XX:MaxRAMPercentage=75.0", \
+            "org.springframework.boot.loader.launch.JarLauncher"]
