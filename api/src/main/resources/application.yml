@@ -2,10 +2,18 @@ spring:
   application:
     name: mini-sast-api
 
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false   # Instant as ISO-8601, not epoch millis
+      indent-output: true
+    deserialization:
+      fail-on-unknown-properties: false  # tolerant — ignore unknown JSON fields
+
 server:
-  port: 8080
+  port: ${PORT:8080}
   error:
     include-message: always
+    include-binding-errors: always
 
 management:
   endpoints:
@@ -23,4 +31,25 @@ info:
   app:
     name: Mini SAST API
     version: 0.1.0
-    description: Static Application Security Testing REST API
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+
+# ── Mini SAST specific configuration ──────────────────────────────
+minisast:
+  security:
+    # IMPORTANT: Change this before deploying to production
+    # Set via environment variable: MINISAST_SECURITY_APIKEY=your-secret-key
+    api-key: ${MINISAST_API_KEY:dev-api-key-change-in-production}
+    enabled: ${MINISAST_SECURITY_ENABLED:true}            # set to false for local development without auth
+
+  scan:
+    # Optional: restrict scans to this directory and below
+    # Leave empty to allow scanning any path (local dev only)
+    # Example: /home/app/projects
+    allowed-root: ${MINISAST_SCAN_ROOT:}
+    max-file-size-mb: 10
